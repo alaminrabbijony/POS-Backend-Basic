@@ -1,0 +1,27 @@
+1.reate project directory
+
+2.Initialize NPM project and install dependencies
+2.1 Install core dependencies: express, mongoose, dotenv
+2.2 Install dev dependency: nodemon
+
+3. Create Express server file (app.js)
+
+4. Define folder structure
+
+5. Perform database setup (MongoDB/Mongoose connection)
+
+6. Configure error handling (Global Error Handler)
+
+7. Create APIs
+    7.1 Authentication APIs
+        - Register
+        - Login
+    7.2 Order APIs
+        - GET order
+        - POST order
+    7.3 Table APIs
+        - GET table
+        - POST table
+    7.4 Category & Items APIs (Optional)
+    7.5 Payment-related APIs (Razorpay)
+8. Deploy on AWS or Deep

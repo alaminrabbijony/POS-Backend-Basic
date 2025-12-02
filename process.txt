@@ -1,0 +1,83 @@
+    // Create Project dir
+1. npm init -y
+    // Create npm project and install all dependencies
+        -> Dependencies
+2. npm install express mongoose dotenv
+    -> dev dependencies
+3. npm install nodemon --save-dev.
+    // create app.js and .env
+4.  app.js and .env
+    // Folders 
+5. config, controllers, models, routes, services
+
+                    !!database Connection !!
+
+    // Create MongoDB project and cluster
+6. User name: 2007025rabbi_db_user pass: bFf6aTjVwIet9jXa
+    // Network Access 
+6. Allow access from any where
+    //database Access
+7. user: arj pass: rmRufoUo8YgOPH8Y
+    // connect MongoDB
+8. MONGODB_URL
+    //connect db using config file
+9. database.js
+    // Connection with db.js with app.js
+10. connectDB()
+11. create config.js file in config Folder
+12. create globalErrorHandler and text it
+    
+
+                    !-- Auth Api --!
+
+                    !! User Api !!
+
+13. Define userModel where schema for user model 
+(must use zod schema for inputs insead of validating in  moongose layer)
+14. Define routes for register and login in userRoutes.js
+                    !! Api  Creation !!
+15. create userController.js file
+16. create register and login async func
+17. for enruption use argon2  
+        ->  npm i atrgon2
+        -> cretae passwordEnrypt.js
+        -> create hashPassword and verifyPassword func
+        -> Add presave function in userModel.js for hashing before saving
+18. install postman for api testing
+19. install jsonWebToken 
+                   -> npm install jsonwebtoken
+20. add accessToken in config.js
+21. also create a secret access token in .env and put that in the config's access token
+22. use cookie for login time
+
+   // getUserData func
+
+23. create tokenVerfication middleware to verfy the token of user
+24. DEFINE ROUTE IN USERROUTES.js with isverfieduser from tokenVerification.js
+25. create getuserdata function
+26. install and add cookie-parser in app.js
+                    -> npm install cookie-parser
+
+                    !! Order Api !!
+                
+27. Define orderController {addOrder, getAOrder, getAllOrders, updateOrder}
+28. define routes orderRoutes
+29. define endpoints in app.js
+30. test with postman 
+    -> register(post: http://localhost:8000/api/user/register)
+    -> login(post: http://localhost:8000/api/user/login), 
+    -> addOrder(post : http://localhost:8000/api/order)
+    -> GET ALL orders (GET: http://localhost:8000/api/order)
+    -> Get a specific id order (Get: http://localhost:8000/api/order/{order id like: 692e3898b5a070e3aa1857bd})
+            Example: http://localhost:8000/api/order/692e3898b5a070e3aa1857bd
+    -> Update a specific id order (Put: http://localhost:8000/api/order/692e3898b5a070e3aa1857bd)
+
+                    !! Table Api !!
+
+31. Define controllers
+32. Define routes
+33. Define routes tableRoutes
+34. define endpoints in app.js   
+
+
+

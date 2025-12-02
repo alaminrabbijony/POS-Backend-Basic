@@ -1,0 +1,6 @@
+git init
+git add README.md
+git commit -m "1st commit and its a pos backend"
+git branch -M main
+git remote add origin https://github.com/alaminrabbijony/POS-Backend-Basic.git
+git push -u origin main
