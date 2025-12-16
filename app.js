@@ -6,11 +6,17 @@ const connectDB = require("./config/database");
 const config = require("./config/config");
 const globalErrorHandler = require("./middlewares/globalErrorHandlers");
 const cookieParser = require("cookie-parser");
+const cors = require('cors')
 
 // Connect to Database
 connectDB();
 
 // Middleware to parse JSON request body
+app.use(cors({
+  credentials: true,
+  origin: ['http://localhost:5173']
+}))
+
 app.use(express.json());
 app.use(cookieParser());
 

@@ -20,7 +20,9 @@ const addOrder = async (req, res, next) => {
 // Get Order by ID
 const getOrderById = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id);
+     const {id} = req.params.id;
+        if (!id) return createHttpError(401, "Invalid id!");
+    const order = await Order.findById(id);
 
     if (!order) {
       return next(createHttpError(404, "Order not found"));
@@ -45,17 +47,19 @@ const getAllOrders = async (req, res, next) => {
       data: orders,
     });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 };
 
 // Update Order
 const updateOrder = async (req, res, next) => {
   try {
+     const {id} = req.params.id;
+        if (!id) return createHttpError(401, "Invalid id!");
     const { orderStatus } = req.body;
 
     const order = await Order.findByIdAndUpdate(
-      req.params.id,
+      id,
       { orderStatus },
       { new: true }
     );
@@ -102,7 +106,11 @@ module.exports = { addOrder, getOrderById, getAllOrders, updateOrder };
 //       "price": 300,
 //       "quantity": 1
 //     }
-//   ]
+//   ],
+//    "table" : {
+//     "tableNo": "3",
+//     "status": "Booked",
+//   }
 // }
 
 
