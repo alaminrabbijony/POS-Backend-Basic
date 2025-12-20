@@ -1,28 +1,49 @@
 const createHttpError = require("http-errors");
-const Order = require("../models/orderModel")
+const Order = require("../models/orderModel");
+const mongoose = require("mongoose");
 
-// Create Order
+/*
+=====================================================
+CREATE ORDER
+- Creates order ONLY
+- Payment is handled separately
+=====================================================
+*/
 const addOrder = async (req, res, next) => {
   try {
-    const order = new Order(req.body);
+    const orderData = req.body;
+    console.log("Received order data:", orderData);
+
+    // Force initial state
+    orderData.orderStatus = "CREATED";
+
+    const order = new Order(orderData);
     await order.save();
 
     res.status(201).json({
       success: true,
       data: order,
-      message: "Order added successfully",
+      message: "Order created successfully",
     });
   } catch (error) {
     next(error);
   }
 };
 
-// Get Order by ID
+/*
+=====================================================
+GET ORDER BY ID
+=====================================================
+*/
 const getOrderById = async (req, res, next) => {
   try {
-     const {id} = req.params.id;
-        if (!id) return createHttpError(401, "Invalid id!");
-    const order = await Order.findById(id);
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(createHttpError(400, "Invalid order id"));
+    }
+
+    const order = await Order.findById(id).populate("table");
 
     if (!order) {
       return next(createHttpError(404, "Order not found"));
@@ -37,26 +58,50 @@ const getOrderById = async (req, res, next) => {
   }
 };
 
-// Get All Orders
+/*
+=====================================================
+GET ALL ORDERS
+=====================================================
+*/
 const getAllOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find();
+    const orders = await Order.find().sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       data: orders,
     });
   } catch (error) {
-    return next(error);
+    next(error);
   }
 };
 
-// Update Order
+/*
+=====================================================
+UPDATE ORDER STATUS
+⚠️ Should be ADMIN / INTERNAL ONLY
+=====================================================
+*/
 const updateOrder = async (req, res, next) => {
   try {
-     const {id} = req.params.id;
-        if (!id) return createHttpError(401, "Invalid id!");
+    const { id } = req.params;
     const { orderStatus } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(createHttpError(400, "Invalid order id"));
+    }
+
+    const allowedStatuses = [
+      "CREATED",
+      "PAYMENT_PENDING",
+      "PAYMENT_COMPLETED",
+      "PAYMENT_FAILED",
+      "RECEIPT_GENERATED",
+    ];
+
+    if (!allowedStatuses.includes(orderStatus)) {
+      return next(createHttpError(400, "Invalid order status"));
+    }
 
     const order = await Order.findByIdAndUpdate(
       id,
@@ -71,47 +116,59 @@ const updateOrder = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: order,
-      message: "Order status updated successfully",
+      message: "Order updated successfully",
     });
   } catch (error) {
     next(error);
   }
 };
 
-module.exports = { addOrder, getOrderById, getAllOrders, updateOrder };
+/*
+=====================================================
+GENERATE RECEIPT
+- Allowed ONLY after payment success
+=====================================================
+*/
+const getReceipt = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
 
-        // Login
-// {
-//   "email": "test@example6.com",
-//   "password": "Test@0246810"
-// }
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return next(createHttpError(400, "Invalid order id"));
+    }
 
+    const order = await Order.findById(orderId).populate("table");
+    if (!order) {
+      return next(createHttpError(404, "Order not found"));
+    }
 
-        // Add Order
-// {
-//   "customerDetails": {
-//     "name": "John Doe",
-//     "phone": "01812345678",
-//     "guests": 2
-//   },
-//   "orderStatus": "In rogress",
-//   "bills": {
-//     "total": 450,
-//     "tax": 67.5,
-//     "totalWithTax": 517.5
-//   },
-//   "items": [
-//     {
-//       "itemName": "Coffee",
-//       "price": 300,
-//       "quantity": 1
-//     }
-//   ],
-//    "table" : {
-//     "tableNo": "3",
-//     "status": "Booked",
-//   }
-// }
+    if (order.orderStatus !== "PAYMENT_COMPLETED") {
+      return next(
+        createHttpError(400, "Payment not completed for this order")
+      );
+    }
 
+    order.orderStatus = "RECEIPT_GENERATED";
+    await order.save();
 
-// order id: 692e3898b5a070e3aa1857bd
+    res.status(200).json({
+      success: true,
+      customer: order.customerDetails,
+      items: order.items,
+      bills: order.bills,
+      table: order.table,
+      date: order.orderDate,
+      message: "Receipt generated successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  addOrder,
+  getOrderById,
+  getAllOrders,
+  updateOrder,
+  getReceipt,
+};

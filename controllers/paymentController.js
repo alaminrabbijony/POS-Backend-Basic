@@ -1,0 +1,247 @@
+const config = require("../config/config");
+const Payment = require("../models/paymentModel");
+const createHttpError = require("http-errors");
+const axios = require("axios");
+const Order = require("../models/orderModel");
+const qs = require("qs");
+const mongoose = require("mongoose");
+const SSLCommerzPayment = require("sslcommerz-lts");
+
+const sslcz = new SSLCommerzPayment(
+  config.sslcommerz.storeId,
+  config.sslcommerz.storePassword,
+  false //true for live, false for sandbox
+);
+
+/*
+=====================================================
+INIT PAYMENT (CREATE SSL SESSION)
+=====================================================
+- Called when user clicks "Pay"
+- Creates a Payment record (PENDING)
+- Updates Order → PAYMENT_PENDING
+- Returns GatewayPageURL to frontend
+- DOES NOT mark payment as success
+=====================================================
+*/
+const initPayment = async (req, res, next) => {
+  try {
+    const { orderId } = req.body;
+
+    //validate orderId
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return next(createHttpError(400, "INVALID ORDER ID FOR PAYMENT INIT"));
+    }
+
+    //FETCH ORDER
+
+    const order = await Order.findById(orderId);
+
+    if (!order)
+      return next(createHttpError(404, "ORDER NOT FOUND FOR PAYMENT INIT"));
+
+    // PREVENT DOUBLE PAYMENT
+    if (order.orderStatus === "PAYMENT_COMPLETED") {
+      return next(createHttpError(400, "ORDER ALREADY PAID: PAYMENT INIT"));
+    }
+
+    const amount = order.bills.totalWithTax;
+
+    // CREATE PAYMENT RECORD
+    const payment = await Payment.create({
+      orderId: order._id,
+      amount,
+      provider: "SSLCOMMERZ",
+      status: "PENDING",
+    });
+    // LINK PAYMENT TO ORDER and UPDATE STATUS
+    order.orderStatus = "PAYMENT_PENDING";
+    order.payment = payment._id;
+    await order.save();
+
+    // prepare the SSLCommerz payment session request payload for launch
+    const payload = {
+      store_id: config.sslcommerz.storeId,
+      store_passWd: config.sslcommerz.storePassword,
+
+      total_amount: amount,
+      currency: "BDT",
+
+      // Payment ID = tran_id
+
+      tran_id: payment._id.toString(),
+
+      success_url: `${config.baseURL}/api/payment/success`,
+      fail_url: `${config.baseURL}/api/payment/fail`,
+      cancel_url: `${config.baseURL}/api/payment/cancel`,
+      ipn_url: `${config.baseURL}/api/payment/ipn`,
+
+      cus_name: order.customerDetails.name,
+      cus_phone: order.customerDetails.phone,
+      cus_email: "test@example.com",
+      cus_country: "Bangladesh",
+
+      shipping_method: "NO",
+      product_name: "POS Order",
+      product_category: "Food",
+      product_profile: "general",
+    };
+
+    //CALL SSLCommerz to create payment session (USING RAW NOT SSLCOMERZ INIT)
+
+    /* Using Custom Axios Post
+    const apiResponse = await axios.post(
+      config.sslcommerz.sessionUrl,
+      qs.stringify(payload),
+      {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        timeout: 15000
+      }
+    ); // this has some prblm 
+*/
+
+    // USING SSLCommerz PACKAGE
+
+    const apiResponse = await sslcz.init(payload);
+
+    // send redirect URL to frontend
+    res.status(200).json({
+      success: true,
+      paymentId: payment._id,
+      redirectUrl: apiResponse.GatewayPageURL,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const paymentSuccess = async (req, res, next) => {
+  res.redirect(`${config.frontendBaseURL}/success`);
+};
+const paymentFailure = async (req, res) => {
+  res.redirect(`${config.frontendBaseURL}/failure`);
+};
+
+const paymentCancel = async (req, res) => {
+  res.redirect(`${config.frontendBaseURL}/cancel`);
+};
+
+/*
+=====================================================
+ VALIDATE PAYMENT 
+=====================================================
+- Called by frontend AFTER redirect
+- Also reused by IPN
+- Calls SSLCommerz Validation API
+- Marks payment SUCCESS / FAILED
+=====================================================
+*/
+
+const validatePayment = async (req, res, next) => {
+  try {
+    /* 
+    const { val_id} = req.body;
+    if(!val_id) return next (createHttpError(400, "Invalid payment validation request"))
+      // call SSLCommerz validation API
+    const data = await sslcz.validate({val_id})
+    if(data.status !== "VALID") {
+      return next(createHttpError(400, "Payment validation failed"))
+    }
+    const payment = await Payment.findById(data.tran_id)
+    if(!payment) {
+      return next(createHttpError(404, "Payment record not found: validation"))
+    }
+
+    // check for double validation
+    if(payment.status === "SUCCESS") {
+      return res.status(200).json({success: true})
+    }
+
+    // update payment record
+    payment.status = "SUCCESS"
+    payment.transcation = {
+      tran_id: data.tran_id,
+      gateway_tran_id: data.bank_tran_id,
+      val_id: data.val_id
+    }
+
+    payment.gatewayResponse = data;
+    await payment.save();
+*/
+
+    const { paymentId } = req.body;
+    if (!paymentId || !mongoose.Types.ObjectId.isValid(paymentId))
+      return next(createHttpError(400, "Invalid payment validation request"));
+
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      return next(createHttpError(404, "Payment record not found: validation"));
+    }
+
+    // prevent double validation
+    if(payment.status === "SUCCESS") {
+      return res.status(200).json({ success: true,  message: "Payment already validated", });
+    }
+
+    // ensure val id 
+    if(!payment.transcation?.val_id ){
+      return next(createHttpError(400, "No val id found for payment"));
+    }
+
+    
+
+    //call SSLCommerz validation API
+    const data = await sslcz.validate({ val_id: payment.transcation.val_id });
+
+    if (data.status !== "VALID") {
+      payment.status = "FAILED";
+      payment.gatewayResponse = data;
+      await payment.save();
+      return next(createHttpError(400, "Payment validation failed"));
+    }
+
+    // update payment record
+    payment.status = "SUCCESS";
+    payment.gatewayResponse = data;
+    await payment.save();
+
+
+    // update order record
+    const order = await Order.findById(payment.orderId);
+    order.orderStatus = "PAYMENT_COMPLETED";
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Payment validated successfully",
+      orderId: order._id,
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+/*
+=====================================================
+        IPN (BACKUP)
+=====================================================
+*/
+
+const paymentIPN = async (req, res, next) => {
+  try {
+    req.body = { val_id: req.body.val_id };
+    return validatePayment(req, res, next);
+  } catch (error) {
+    return next(error);
+  }
+};
+
+module.exports = {
+  initPayment,
+  paymentSuccess,
+  paymentFailure,
+  paymentCancel,
+  validatePayment,
+  paymentIPN,
+};

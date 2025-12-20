@@ -80,4 +80,19 @@
 34. define endpoints in app.js   
 
 
+!!!! SSLCOMMERZ INTREGATION
+35. define schema with tranction id and gateway register
+36.
+
+Frontend → INIT
+Backend  → Create Payment (PENDING)
+Backend  → SSL Session API
+Frontend → Redirect to Gateway
+User     → Pays
+SSL      → success_url / ipn
+Backend  → VALIDATION API
+Backend  → Mark Payment SUCCESS
+Backend  → Update Order
+
+
 

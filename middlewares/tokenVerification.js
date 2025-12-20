@@ -31,7 +31,7 @@ const isVerifiedUser = async (req, res, next) => {
 
     if (!user) return next(createHttpError(401, "User not found"));
 
-    // attach user to res object
+    // attach user to req object
     res.user = user;
     next();
   } catch (error) {
