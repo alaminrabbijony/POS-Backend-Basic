@@ -37,6 +37,13 @@ const paymentSchema = new mongoose.Schema(
  // Full response from gateway (never trust only some fields)
     gatewayResponse: Object,
 
+ // for getting clean res
+    failureRes: String,
+    isFinalized: {
+      type: Boolean,
+      defaullt: false
+    }
+
   },
   { timestamps: true }
 );

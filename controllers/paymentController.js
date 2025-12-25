@@ -6,6 +6,7 @@ const Order = require("../models/orderModel");
 const qs = require("qs");
 const mongoose = require("mongoose");
 const SSLCommerzPayment = require("sslcommerz-lts");
+const paymentProcessor = require("./processor/paymentProcessor");
 
 const sslcz = new SSLCommerzPayment(
   config.sslcommerz.storeId,
@@ -73,7 +74,7 @@ const initPayment = async (req, res, next) => {
       tran_id: payment._id.toString(),
 
       success_url: `${config.baseURL}/api/payment/success`,
-      fail_url: `${config.baseURL}/api/payment/fail`,
+      fail_url: `${config.baseURL}/api/payment/failure`,
       cancel_url: `${config.baseURL}/api/payment/cancel`,
       ipn_url: `${config.baseURL}/api/payment/ipn`,
 
@@ -117,14 +118,26 @@ const initPayment = async (req, res, next) => {
 };
 
 const paymentSuccess = async (req, res, next) => {
-  res.redirect(`${config.frontendBaseURL}/success`);
+  console.log("SSLCommerz SUCCESS BODY:", req.body);
+  //frontend will call validate endpoint
+  // res.redirect(`${config.frontendBaseURL}/processing?status=success`);
+
+  /*Backend Validates */
+  return paymentProcessor({ req, res, finalStatus: "SUCCESS" });
 };
 const paymentFailure = async (req, res) => {
-  res.redirect(`${config.frontendBaseURL}/failure`);
+  console.log("SSLCommerz FAILURE BODY:", req.body);
+  //res.redirect(`${config.frontendBaseURL}/processing?status=failure`);
+  /*Backend Validates */
+  return paymentProcessor({ req, res, finalStatus: "FAILED" });
 };
 
 const paymentCancel = async (req, res) => {
-  res.redirect(`${config.frontendBaseURL}/cancel`);
+  console.log("SSLCommerz CANCEL BODY:", req.body);
+  // res.redirect(`${config.frontendBaseURL}/processing?status=cancel`);
+
+  /*Backend Validates */
+  return paymentProcessor({ req, res, finalStatus: "REFUNDED" });
 };
 
 /*
@@ -137,6 +150,62 @@ const paymentCancel = async (req, res) => {
 - Marks payment SUCCESS / FAILED
 =====================================================
 */
+
+const getReceipt = async (req, res, next) => {
+  try {
+    const { tran_id } = req.params;
+
+    if (!tran_id || !mongoose.Types.ObjectId.isValid(tran_id)) {
+      return next(createHttpError(400, "Missing or invalid Transaction id"));
+    }
+
+    const payment = await Payment.findById(tran_id).populate({
+      path: "orderId",
+      populate: {
+        path: "table"
+      }
+    });
+
+    if (!payment) return next(createHttpError(404, "Payment not found"));
+
+    if (payment.status !== "SUCCESS")
+      return next(createHttpError(404, "Payment not successful"));
+
+    const order = payment.orderId;
+    if (!order) {
+      return next(createHttpError(404, "Order not found"));
+    }
+
+
+    res.status(200).json({
+      success: true,
+      receipt: {
+        transactionId: payment._id,
+        amount: payment.amount,
+        method: payment.provider,
+        paidAt: payment.updatedAt,
+      },
+      gateway: {
+        bank_tran_id: payment.transcation.gateway_tran_id,
+        channel: payment.gatewayResponse?.card_type,
+        riskTitile: payment.gatewayResponse?.risk_title,
+        riskLvl: payment.gatewayResponse?.risk_level,
+        cardTranDate: payment.gatewayResponse?.tran_date,
+      },
+
+      order: {
+        customer: order.customerDetails,
+        items: order.items,
+        bills: order.bills,
+        table: order.table,
+        date: order.orderDate,
+      },
+      message: "Receipt generated successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 const validatePayment = async (req, res, next) => {
   try {
@@ -180,16 +249,16 @@ const validatePayment = async (req, res, next) => {
     }
 
     // prevent double validation
-    if(payment.status === "SUCCESS") {
-      return res.status(200).json({ success: true,  message: "Payment already validated", });
+    if (payment.status === "SUCCESS") {
+      return res
+        .status(200)
+        .json({ success: true, message: "Payment already validated" });
     }
 
-    // ensure val id 
-    if(!payment.transcation?.val_id ){
+    // ensure val id
+    if (!payment.transcation?.val_id) {
       return next(createHttpError(400, "No val id found for payment"));
     }
-
-    
 
     //call SSLCommerz validation API
     const data = await sslcz.validate({ val_id: payment.transcation.val_id });
@@ -205,7 +274,6 @@ const validatePayment = async (req, res, next) => {
     payment.status = "SUCCESS";
     payment.gatewayResponse = data;
     await payment.save();
-
 
     // update order record
     const order = await Order.findById(payment.orderId);
@@ -244,4 +312,5 @@ module.exports = {
   paymentCancel,
   validatePayment,
   paymentIPN,
+  getReceipt,
 };

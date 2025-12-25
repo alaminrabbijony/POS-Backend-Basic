@@ -1,6 +1,7 @@
 const createHttpError = require("http-errors");
 const Order = require("../models/orderModel");
 const mongoose = require("mongoose");
+const tableModel = require("../models/tableModel");
 
 /*
 =====================================================
@@ -16,13 +17,28 @@ const addOrder = async (req, res, next) => {
 
     // Force initial state
     orderData.orderStatus = "CREATED";
+    // validate table first
+    const table = await tableModel.findById(orderData.table);
 
-    const order = new Order(orderData);
-    await order.save();
+    if (!table) return next(createHttpError(404, "Table is missing: addOrder"));
+
+    if (table.status === "Booked") {
+      return next(createHttpError(409, "Table is already Booked"));
+    }
+    // create order
+    const order = await Order.create(orderData);
+
+    //update table status
+    table.status = "Booked";
+    table.currentOrder = order._id;
+    await table.save();
+
+    // populate table
+    const populatedOrder = await Order.findById(order._id).populate("table")
 
     res.status(201).json({
       success: true,
-      data: order,
+      data: populatedOrder,
       message: "Order created successfully",
     });
   } catch (error) {
@@ -63,12 +79,76 @@ const getOrderById = async (req, res, next) => {
 GET ALL ORDERS
 =====================================================
 */
+// const getAllOrders = async (req, res, next) => {
+//   try {
+//     const orders = await Order.find().sort({ createdAt: -1 }).populate("payment");
+
+//     res.status(200).json({
+//       success: true,
+//       data: orders,
+//     });
+//   } catch (error) {
+//     next(error);
+//   }
+// };
+
+
 const getAllOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      from,
+      to,
+    } = req.query;
+
+    const safeLimit = Math.min(Number(limit), 50); // hard cap
+    const skip = (Number(page) - 1) * safeLimit;
+
+    /* FILTERS */
+    const filter = {};
+
+    if (status) {
+      filter.orderStatus = status;
+    }
+
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) filter.createdAt.$lte = new Date(to);
+    }
+
+    /*QUERY */
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .select(
+          "_id orderStatus orderDate items bills table customerDetails payment createdAt"
+        )
+        .populate({
+          path: "payment",
+          select: "provider status amount updatedAt",
+        })
+        .populate({
+          path: "table",
+          select: "tableNo",
+        })
+        .lean(),
+
+      Order.countDocuments(filter),
+    ]);
 
     res.status(200).json({
       success: true,
+      meta: {
+        page: Number(page),
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
       data: orders,
     });
   } catch (error) {
@@ -76,10 +156,11 @@ const getAllOrders = async (req, res, next) => {
   }
 };
 
+
 /*
 =====================================================
 UPDATE ORDER STATUS
-⚠️ Should be ADMIN / INTERNAL ONLY
+Should be ADMIN / INTERNAL ONLY
 =====================================================
 */
 const updateOrder = async (req, res, next) => {
@@ -129,46 +210,10 @@ GENERATE RECEIPT
 - Allowed ONLY after payment success
 =====================================================
 */
-const getReceipt = async (req, res, next) => {
-  try {
-    const { orderId } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(orderId)) {
-      return next(createHttpError(400, "Invalid order id"));
-    }
-
-    const order = await Order.findById(orderId).populate("table");
-    if (!order) {
-      return next(createHttpError(404, "Order not found"));
-    }
-
-    if (order.orderStatus !== "PAYMENT_COMPLETED") {
-      return next(
-        createHttpError(400, "Payment not completed for this order")
-      );
-    }
-
-    order.orderStatus = "RECEIPT_GENERATED";
-    await order.save();
-
-    res.status(200).json({
-      success: true,
-      customer: order.customerDetails,
-      items: order.items,
-      bills: order.bills,
-      table: order.table,
-      date: order.orderDate,
-      message: "Receipt generated successfully",
-    });
-  } catch (error) {
-    next(error);
-  }
-};
 
 module.exports = {
   addOrder,
   getOrderById,
   getAllOrders,
   updateOrder,
-  getReceipt,
 };

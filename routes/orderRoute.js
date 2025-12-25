@@ -14,6 +14,5 @@ router.route("/").post(isVerifiedUser, addOrder);
 router.route("/").get(isVerifiedUser, getAllOrders);
 router.route("/:id").get(isVerifiedUser, getOrderById);
 router.route("/:id").put(isVerifiedUser, updateOrder);
-router.route("/receipt/:orderId").get(isVerifiedUser, getReceipt);
 
 module.exports = router;

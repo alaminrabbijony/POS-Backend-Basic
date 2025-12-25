@@ -8,12 +8,14 @@ const {
   paymentCancel,
   validatePayment,
   paymentIPN,
+  getReceipt,
 } = require("../controllers/paymentController");
 
 router.post("/init", isVerifiedUser, initPayment);
 router.post("/success", paymentSuccess);
 router.post("/failure", paymentFailure);
 router.post("/cancel", paymentCancel);
-router.post("/validate", validatePayment); // SSLCommerz will call this endpoint to validate payment
 router.post("/ipn", paymentIPN); // SSLCommerz will call this endpoint for IPN (backup)
+router.get("/receipt/:tran_id",isVerifiedUser, getReceipt);
+
 module.exports = router;

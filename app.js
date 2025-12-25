@@ -20,6 +20,11 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
+// for payment gateway
+
+app.use(express.urlencoded({extended: true}))
+app.use(express.json())
+
 const PORT = config.port;
 // Root Endpoint
 app.get("/", (req, res) => {
