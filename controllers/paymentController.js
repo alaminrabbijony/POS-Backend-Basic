@@ -7,6 +7,7 @@ const qs = require("qs");
 const mongoose = require("mongoose");
 const SSLCommerzPayment = require("sslcommerz-lts");
 const paymentProcessor = require("./processor/paymentProcessor");
+const tableModel = require("../models/tableModel");
 
 const sslcz = new SSLCommerzPayment(
   config.sslcommerz.storeId,
@@ -151,8 +152,67 @@ const paymentCancel = async (req, res) => {
 =====================================================
 */
 
+const cashPayment = async (req, res, next) => {
+  try {
+    const { orderId } = req.body;
+
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return next(createHttpError(400, "Missing or Invalid Order id"));
+    }
+    const order = await Order.findById(orderId);
+    if (!order) return next(createHttpError(404, "Order not found"));
+    //dbl payment
+    if (order.orderStatus !== "PAYMENT_PENDING") {
+      return next(
+        createHttpError(
+          400,
+          `Cannot process cash payment for order in status ${order.orderStatus}`
+        )
+      );
+    }
+
+    const amount = order.bills.totalWithTax;
+    const payment = await Payment.create({
+      orderId: order._id,
+      amount,
+      provider: "CASH",
+      status: "SUCCESS",
+      transaction: {
+        tran_id: new mongoose.Types.ObjectId().toString(),
+      },
+      isFinalized: true,
+    });
+
+    order.orderStatus = "PAYMENT_COMPLETED";
+    //update table
+    const table = await tableModel.findById(order.table);
+    table.status = "Booked";
+    table.currentOrder = order._id;
+    await table.save();
+    // await tableModel.findByIdAndUpdate(order.table, {
+    //   status: "Bokked",
+    //   currentOrder: orderId
+    // })
+
+    order.payment = payment._id;
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      paymentId: payment._id,
+      orderId: order._id,
+      message: "Cash payment sucessfully completed",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 const getReceipt = async (req, res, next) => {
   try {
+    /**
+       ** Transaction id based**
+    
     const { tran_id } = req.params;
 
     if (!tran_id || !mongoose.Types.ObjectId.isValid(tran_id)) {
@@ -168,30 +228,58 @@ const getReceipt = async (req, res, next) => {
 
     if (!payment) return next(createHttpError(404, "Payment not found"));
 
-    if (payment.status !== "SUCCESS")
+    if (!payment.isFinalized ||  payment.status !== "SUCCESS")
       return next(createHttpError(404, "Payment not successful"));
 
     const order = payment.orderId;
     if (!order) {
       return next(createHttpError(404, "Order not found"));
     }
+ */
 
+    /**
+     * OrderId based
+     */
+
+    const { orderId } = req.params;
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return next(createHttpError(400, "Invalid order ID"));
+    }
+    const order = await Order.findById(orderId)
+      .populate("table")
+      .populate("payment");
+
+    if (!order || !order.payment) {
+      return next(createHttpError(404, "Receipt not found"));
+    }
+
+    const payment = order.payment;
+
+    if (!payment.isFinalized || payment.status !== "SUCCESS") {
+      return next(createHttpError(400, "Receipt not avilable"));
+    }
+
+    const gateway =
+      payment.provider === "SSLCOMMERZ"
+        ? {
+            bank_tran_id: payment.transaction.gateway_tran_id,
+            channel: payment.gatewayResponse?.card_type,
+            riskTitle: payment.gatewayResponse?.risk_title,
+            riskLvl: payment.gatewayResponse?.risk_level,
+            cardTranDate: payment.gatewayResponse?.tran_date,
+          }
+        : null;
 
     res.status(200).json({
       success: true,
       receipt: {
+        receiptNo: order._id,
         transactionId: payment._id,
         amount: payment.amount,
         method: payment.provider,
-        paidAt: payment.updatedAt,
+        paidAt: payment.createdAt,
       },
-      gateway: {
-        bank_tran_id: payment.transcation.gateway_tran_id,
-        channel: payment.gatewayResponse?.card_type,
-        riskTitile: payment.gatewayResponse?.risk_title,
-        riskLvl: payment.gatewayResponse?.risk_level,
-        cardTranDate: payment.gatewayResponse?.tran_date,
-      },
+      gateway,
 
       order: {
         customer: order.customerDetails,
@@ -229,7 +317,7 @@ const validatePayment = async (req, res, next) => {
 
     // update payment record
     payment.status = "SUCCESS"
-    payment.transcation = {
+    payment.transaction = {
       tran_id: data.tran_id,
       gateway_tran_id: data.bank_tran_id,
       val_id: data.val_id
@@ -256,12 +344,12 @@ const validatePayment = async (req, res, next) => {
     }
 
     // ensure val id
-    if (!payment.transcation?.val_id) {
+    if (!payment.transaction?.val_id) {
       return next(createHttpError(400, "No val id found for payment"));
     }
 
     //call SSLCommerz validation API
-    const data = await sslcz.validate({ val_id: payment.transcation.val_id });
+    const data = await sslcz.validate({ val_id: payment.transaction.val_id });
 
     if (data.status !== "VALID") {
       payment.status = "FAILED";
@@ -313,4 +401,5 @@ module.exports = {
   validatePayment,
   paymentIPN,
   getReceipt,
+  cashPayment,
 };

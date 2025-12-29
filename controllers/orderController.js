@@ -16,8 +16,10 @@ const addOrder = async (req, res, next) => {
     console.log("Received order data:", orderData);
 
     // Force initial state
-    orderData.orderStatus = "CREATED";
+    orderData.orderStatus = "PAYMENT_PENDING";
+    // init payment status
     // validate table first
+    
     const table = await tableModel.findById(orderData.table);
 
     if (!table) return next(createHttpError(404, "Table is missing: addOrder"));
@@ -29,9 +31,10 @@ const addOrder = async (req, res, next) => {
     const order = await Order.create(orderData);
 
     //update table status
-    table.status = "Booked";
-    table.currentOrder = order._id;
-    await table.save();
+    // table should be updated after payment completed
+    // table.status = "Booked";
+    // table.currentOrder = order._id;
+    // await table.save();
 
     // populate table
     const populatedOrder = await Order.findById(order._id).populate("table")

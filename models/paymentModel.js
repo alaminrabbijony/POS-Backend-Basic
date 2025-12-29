@@ -8,7 +8,7 @@ const paymentSchema = new mongoose.Schema(
       ref: "Order",
       default: null,
     },
-
+    paidAt: Date,
     // Required even in tutorial
     amount: {
       type: Number,
@@ -29,7 +29,7 @@ const paymentSchema = new mongoose.Schema(
     },
 
     // all gateway related ids
-    transcation: {
+    transaction: {
       tran_id: String, //POS System id
       gateway_tran_id: String, // SSLCommerz bank_tran_id
       val_id: String, // // SSLCommerz validation id
